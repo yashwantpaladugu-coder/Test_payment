@@ -72,8 +72,7 @@ let chat: Chat | null = null;
 export const getAgent1Chat = (): Chat => {
     if (!chat) {
         chat = ai.chats.create({
-            // FIX: Use 'gemini-flash-lite-latest' as per coding guidelines.
-            model: 'gemini-2.5-flash-lite',
+            model: 'gemini-flash-lite-latest',
             config: {
                 systemInstruction: systemInstruction,
                 tools: [{ functionDeclarations: [searchBestBuyFunctionDeclaration, updateCartItemFunctionDeclaration, startCheckoutFunctionDeclaration] }]
@@ -84,7 +83,6 @@ export const getAgent1Chat = (): Chat => {
 };
 
 export const sendMessageToAgent1 = async (message: string | Part[], currentCart: CartItem[], searchResults: Product[]) => {
-    // FIX: Corrected typo in function call from 'getAgent1-Chat' to 'getAgent1Chat'.
     const chatSession = getAgent1Chat();
 
     if (typeof message === 'string') {

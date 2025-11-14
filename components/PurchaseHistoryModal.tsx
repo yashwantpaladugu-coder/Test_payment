@@ -6,6 +6,7 @@ import { generateAndDownloadCSV } from '../services/transactionService';
 interface PurchaseHistoryModalProps {
   transactions: Transaction[];
   onClose: () => void;
+  userId: string; // To handle user-specific actions if needed in future
 }
 
 const PurchaseHistoryModal: React.FC<PurchaseHistoryModalProps> = ({ transactions, onClose }) => {

@@ -1,11 +1,12 @@
 
 import { CartItem, Transaction } from '../types';
 
-const TRANSACTIONS_KEY = 'agentic-checkout-transactions';
+const TRANSACTIONS_KEY_PREFIX = 'agentic-checkout-transactions-';
 
-export const loadTransactions = (): Transaction[] => {
+export const loadTransactions = (userId: string): Transaction[] => {
+    if (!userId) return [];
     try {
-        const data = localStorage.getItem(TRANSACTIONS_KEY);
+        const data = localStorage.getItem(TRANSACTIONS_KEY_PREFIX + userId);
         return data ? JSON.parse(data) : [];
     } catch (error) {
         console.error("Failed to load transactions from localStorage", error);
@@ -13,8 +14,10 @@ export const loadTransactions = (): Transaction[] => {
     }
 };
 
-export const saveTransaction = (products: CartItem[]): Transaction[] => {
-    const transactions = loadTransactions();
+export const saveTransaction = (userId: string, products: CartItem[]): Transaction[] => {
+    if (!userId) return loadTransactions(userId);
+    
+    const transactions = loadTransactions(userId);
     const total = products.reduce((sum, p) => sum + (p.price * p.quantity), 0);
     const newTransaction: Transaction = {
         id: new Date().toISOString(),
@@ -26,7 +29,7 @@ export const saveTransaction = (products: CartItem[]): Transaction[] => {
     const updatedTransactions = [...transactions, newTransaction];
     
     try {
-        localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify(updatedTransactions));
+        localStorage.setItem(TRANSACTIONS_KEY_PREFIX + userId, JSON.stringify(updatedTransactions));
     } catch (error) {
         console.error("Failed to save transaction to localStorage", error);
     }
