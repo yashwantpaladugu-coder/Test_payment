@@ -95,8 +95,9 @@ const App: React.FC = () => {
             return;
         }
     
-        const searchCall = response.functionCalls.find(fc => fc.name === 'searchBestBuy');
-        if (searchCall) {
+        const hasSearchCall = response.functionCalls.some(fc => fc.name === 'searchBestBuy');
+        if (hasSearchCall) {
+            const searchCall = response.functionCalls.find(fc => fc.name === 'searchBestBuy')!;
             const query = searchCall.args.query as string;
             addMessage(Role.SYSTEM, `Searching for "${query}"...`);
             const products = searchProducts(query);
@@ -114,70 +115,49 @@ const App: React.FC = () => {
             return;
         }
     
-        let itemsAdded: CartItem[] = [];
-        let itemsRemovedNames: string[] = [];
-        let checkoutInitiated = false;
-    
-        for (const fc of response.functionCalls) {
-            if (fc.name === 'addItemToCart') {
-                const itemToAdd = fc.args as unknown as CartItem;
-                itemsAdded.push(itemToAdd);
-            } else if (fc.name === 'removeItemFromCart') {
-                const { productName } = fc.args as { productName: string };
-                itemsRemovedNames.push(productName);
-            } else if (fc.name === 'startCheckout') {
-                checkoutInitiated = true;
-            }
-        }
-    
-        if (checkoutInitiated) {
+        if (response.functionCalls.some(fc => fc.name === 'startCheckout')) {
             handleCheckout();
             setSearchResults([]);
             return;
         }
     
-        if (itemsAdded.length > 0 || itemsRemovedNames.length > 0) {
-            let newCartProducts = [...cart.products];
-            let confirmationParts: string[] = [];
-    
-            if (itemsAdded.length > 0) {
-                const addedNames: string[] = [];
-                for (const item of itemsAdded) {
-                    const existingItemIndex = newCartProducts.findIndex(p => p.id === item.id);
-                    const quantityToAdd = item.quantity || 1;
-                    if (existingItemIndex > -1) {
-                        newCartProducts[existingItemIndex].quantity += quantityToAdd;
+        const cartUpdateCalls = response.functionCalls.filter(fc => fc.name === 'updateCartItem');
+        if (cartUpdateCalls.length > 0) {
+            const newCartProducts = [...cart.products];
+            const confirmationParts: string[] = [];
+            const addedConfirmations: string[] = [];
+            const removedConfirmations: string[] = [];
+            const updatedConfirmations: string[] = [];
+
+            for (const fc of cartUpdateCalls) {
+                const itemToUpdate = fc.args as unknown as CartItem;
+                const existingItemIndex = newCartProducts.findIndex(p => p.id === itemToUpdate.id);
+                const newQuantity = itemToUpdate.quantity;
+
+                if (existingItemIndex > -1) {
+                    if (newQuantity > 0) {
+                        newCartProducts[existingItemIndex].quantity = newQuantity;
+                        updatedConfirmations.push(`updated ${itemToUpdate.name} quantity to ${newQuantity}`);
                     } else {
-                        newCartProducts.push({ ...item, quantity: quantityToAdd });
+                        newCartProducts.splice(existingItemIndex, 1);
+                        removedConfirmations.push(itemToUpdate.name);
                     }
-                    addedNames.push(`${item.name} (x${quantityToAdd})`);
-                }
-                confirmationParts.push(`added ${addedNames.join(', ')}`);
-            }
-    
-            if (itemsRemovedNames.length > 0) {
-                const removedProductFullNames: string[] = [];
-                for (const name of itemsRemovedNames) {
-                    const lowerCaseName = name.toLowerCase();
-                    let wasRemoved = false;
-                    newCartProducts = newCartProducts.filter(p => {
-                        if (!wasRemoved && p.name.toLowerCase().includes(lowerCaseName)) {
-                            removedProductFullNames.push(p.name);
-                            wasRemoved = true; 
-                            return false;
-                        }
-                        return true;
-                    });
-                }
-                if (removedProductFullNames.length > 0) {
-                    confirmationParts.push(`removed ${removedProductFullNames.join(', ')}`);
+                } else if (newQuantity > 0) {
+                    newCartProducts.push({ ...itemToUpdate, quantity: newQuantity });
+                    addedConfirmations.push(`${itemToUpdate.name} (x${newQuantity})`);
                 }
             }
+
+            if (addedConfirmations.length > 0) confirmationParts.push(`added ${addedConfirmations.join(', ')}`);
+            if (updatedConfirmations.length > 0) confirmationParts.push(...updatedConfirmations);
+            if (removedConfirmations.length > 0) confirmationParts.push(`removed ${removedConfirmations.join(', ')}`);
             
             setCart({ products: newCartProducts });
     
-            const confirmationMessage = `I've updated your cart. I've ${confirmationParts.join(' and ')}.`;
-            addMessage(Role.AGENT_1, confirmationMessage);
+            if (confirmationParts.length > 0) {
+                const confirmationMessage = `I've updated your cart. I've ${confirmationParts.join(' and ')}.`;
+                addMessage(Role.AGENT_1, confirmationMessage);
+            }
             setSearchResults([]);
         }
     
@@ -191,7 +171,11 @@ const App: React.FC = () => {
             await processAgent1FunctionCall(response);
         } catch (error) {
             console.error("Error sending message to Agent 1:", error);
-            addMessage(Role.SYSTEM, "Sorry, I'm having trouble connecting. This may be due to API rate limits. Please try again later.");
+            let errorMessage = "Sorry, an unexpected error occurred. Please try again later.";
+            if (error instanceof Error && (error.message.includes('RESOURCE_EXHAUSTED') || error.message.includes('429'))) {
+                errorMessage = "API Rate Limit Exceeded: You've made too many requests. Please wait a moment and try again.";
+            }
+            addMessage(Role.SYSTEM, errorMessage);
         } finally {
             setIsLoading(false);
         }
@@ -256,7 +240,11 @@ const App: React.FC = () => {
 
         } catch (error) {
             console.error("Error with Agent 2:", error);
-            addMessage(Role.SYSTEM, "Sorry, there was an error with the payment service. Please try again.");
+            let errorMessage = "Sorry, there was an error with the payment service. Please try again.";
+            if (error instanceof Error && (error.message.includes('RESOURCE_EXHAUSTED') || error.message.includes('429'))) {
+                 errorMessage = "API Rate Limit Exceeded during payment. Please wait a moment before trying again.";
+            }
+            addMessage(Role.SYSTEM, errorMessage);
             if (paymentStep === PaymentStep.PROCESSING) {
                 setPaymentStep(PaymentStep.ENTER_CODE);
             }

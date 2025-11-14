@@ -8,16 +8,21 @@ if (!process.env.API_KEY) {
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 const systemInstruction = `You are Agent 1, a friendly and helpful shopping assistant for an electronics store.
-Your goal is to help users find products and manage their cart.
+Your goal is to help users find products and manage their cart. You will be provided with the current cart contents and any recent search results in the prompt.
 
 1.  Start by asking the user what they are looking for.
-2.  When the user specifies a product or category (e.g., "laptop", "sony headphones"), you MUST use the 'searchBestBuy' function to find relevant items.
-3.  The results of 'searchBestBuy' will be provided back to you. Present these results to the user as a numbered list. For example: "I found a few options: 1. MacBook Pro ($1999), 2. Dell XPS ($1599)".
-4.  If no results are found, inform the user and ask them to be more specific or try a different search.
-5.  When a user chooses an item from the list (e.g., "I want option 1", "add the Dell XPS to my cart"), you MUST use the 'addItemToCart' function. Identify the correct product from the search results context provided to you and call the function with the product's details and a quantity of 1. If a user asks to add multiple distinct items in one message (e.g., "add a macbook and airpods"), you should make multiple, parallel 'addItemToCart' function calls in the same turn.
-6.  When a user asks to remove an item (e.g., "remove the MacBook"), you MUST use the 'removeItemFromCart' function. Use the product name as mentioned by the user to identify the item to be removed from the cart context.
+2.  When the user specifies a product or category (e.g., "laptop", "sony headphones"), you MUST use the 'searchBestBuy' function.
+3.  The results of 'searchBestBuy' will be provided back to you. Present these results to the user as a numbered list.
+4.  To add, update, or remove items from the cart, you MUST use the 'updateCartItem' function.
+    - Based on the user's request and the current cart, you must calculate the NEW TOTAL QUANTITY for an item.
+    - Example 1: Cart is empty. User says "add option 1". You call 'updateCartItem' for that product with quantity: 1.
+    - Example 2: Cart has "Headphones (x1)". User says "add another one". You call 'updateCartItem' for headphones with quantity: 2.
+    - Example 3: Cart has "Headphones (x2)". User says "remove one". You call 'updateCartItem' for headphones with quantity: 1.
+    - Example 4: Cart has "Headphones (x1)". User says "remove it". You call 'updateCartItem' for headphones with quantity: 0.
+5.  You MUST use the product details (id, name, price, image) from the search results context or cart context when calling 'updateCartItem'.
+6.  If a user asks to perform multiple cart actions in one message (e.g., "add a macbook and remove the airpods"), you should make multiple, parallel 'updateCartItem' function calls in the same turn.
 7.  When the user indicates they are ready to checkout (e.g., "let's checkout", "I'm ready to pay"), you MUST use the 'startCheckout' function.
-8.  The system will provide a single confirmation message after your requested cart updates are complete. You do not need to confirm the cart update yourself.
+8.  The system will provide a single confirmation message after your requested cart updates. You do not need to confirm the cart update yourself.
 9.  Do not answer questions unrelated to shopping. Gently guide the user back to the task.
 `;
 
@@ -36,31 +41,19 @@ const searchBestBuyFunctionDeclaration: FunctionDeclaration = {
     }
 };
 
-const addItemToCartFunctionDeclaration: FunctionDeclaration = {
-    name: 'addItemToCart',
+const updateCartItemFunctionDeclaration: FunctionDeclaration = {
+    name: 'updateCartItem',
     parameters: {
         type: Type.OBJECT,
-        description: 'Adds a specified quantity of a single product to the shopping cart.',
+        description: 'Adds, updates, or removes an item from the cart by setting its new quantity. To remove an item, set its quantity to 0.',
         properties: {
              id: { type: Type.STRING, description: 'The product ID.'},
              name: { type: Type.STRING, description: 'The product name.' },
              price: { type: Type.NUMBER, description: 'The product price.'},
              image: { type: Type.STRING, description: 'URL of the product image.'},
-             quantity: { type: Type.NUMBER, description: 'The quantity of this product to add.'}
+             quantity: { type: Type.NUMBER, description: 'The new total quantity for the item. Setting it to 0 will remove the item from the cart.'}
         },
         required: ['id', 'name', 'price', 'image', 'quantity']
-    }
-};
-
-const removeItemFromCartFunctionDeclaration: FunctionDeclaration = {
-    name: 'removeItemFromCart',
-    parameters: {
-        type: Type.OBJECT,
-        description: 'Removes a product from the shopping cart based on its name.',
-        properties: {
-             productName: { type: Type.STRING, description: 'The name of the product to remove from the cart (e.g., "MacBook Pro 14").' }
-        },
-        required: ['productName']
     }
 };
 
@@ -80,10 +73,10 @@ export const getAgent1Chat = (): Chat => {
     if (!chat) {
         chat = ai.chats.create({
             // FIX: Use 'gemini-flash-lite-latest' as per coding guidelines.
-            model: 'gemini-flash-lite-latest',
+            model: 'gemini-2.5-flash-lite',
             config: {
                 systemInstruction: systemInstruction,
-                tools: [{ functionDeclarations: [searchBestBuyFunctionDeclaration, addItemToCartFunctionDeclaration, removeItemFromCartFunctionDeclaration, startCheckoutFunctionDeclaration] }]
+                tools: [{ functionDeclarations: [searchBestBuyFunctionDeclaration, updateCartItemFunctionDeclaration, startCheckoutFunctionDeclaration] }]
             },
         });
     }
@@ -101,7 +94,7 @@ export const sendMessageToAgent1 = async (message: string | Part[], currentCart:
             
             // This context is crucial. It gives the agent the full product data to use for function calls,
             // while also reminding it of the simple list it showed the user.
-            searchContext = `IMPORTANT CONTEXT: You have just shown the user a list of products. Here is the full JSON data for those products: ${fullDataForAgent}. When the user picks an item (e.g., "add number 1" or "the MacBook"), you MUST use the corresponding object from this JSON data to get the id, name, price, and image for the 'addItemToCart' function call.`;
+            searchContext = `IMPORTANT CONTEXT: You have just shown the user a list of products. Here is the full JSON data for those products: ${fullDataForAgent}. When the user picks an item (e.g., "add number 1" or "the MacBook"), you MUST use the corresponding object from this JSON data to get the id, name, price, and image for the 'updateCartItem' function call.`;
         }
         
         const prompt = `${searchContext}\n\nCurrent cart is: ${JSON.stringify(currentCart)}. User says: "${message}"`;
