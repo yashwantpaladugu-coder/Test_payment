@@ -1,0 +1,5 @@
+{
+  "name": "Agentic Checkout",
+  "description": "A human-in-the-loop chat simulating a two-agent e-commerce checkout process using Gemini API for fast, low-latency responses and dynamic product search.",
+  "requestFramePermissions": []
+}
